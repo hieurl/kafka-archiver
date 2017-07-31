@@ -1,67 +1,78 @@
 package org.l1024.kafka.archiver;
 
-import kafka.api.FetchRequest;
-import kafka.javaapi.consumer.SimpleConsumer;
-import kafka.message.MessageAndOffset;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.log4j.Logger;
 
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.Map;
 
 class MessageStream {
 
     private static final Logger logger = Logger.getLogger(MessageStream.class);
 
-    private Partition partition;
-    private long offset;
+    KafkaConsumer kafkaConsumer;
+    Iterator messageSetIterator;
+    long lastOffset = -1;
 
-    private SimpleConsumer consumer;
-    private int kafkaMaxMessageSize;
-    private Iterator<MessageAndOffset> messageSetIterator;
+    private static MessageStream instance;
 
-    protected MessageStream(Partition partition, long offset, SimpleConsumer consumer, int kafkaMaxMessageSize) {
-        this.partition = partition;
-        this.offset = offset;
+    public static MessageStream getInstance() throws Exception {
+        if (instance == null) {
+            throw new Exception(String.format("must run %s:init(%s kafkaConsumer) first", MessageStream.class.getName(), KafkaConsumer.class.getName()));
+        }
+        return instance;
+    }
 
-        this.consumer = consumer;
-        this.kafkaMaxMessageSize = kafkaMaxMessageSize;
+    public static MessageStream init(KafkaConsumer kafkaConsumer) {
+        if (instance != null) {
+            return instance;
+        }
+        instance = new MessageStream(kafkaConsumer);
+        return instance;
+    }
+
+    protected MessageStream(KafkaConsumer kafkaConsumer) {
+        this.kafkaConsumer = kafkaConsumer;
     }
 
     public boolean hasNext() {
         return true;
     }
 
-    public MessageAndOffset next(long timeOut) {
+    public ConsumerRecord next(long timeOut) {
 
         long start = System.currentTimeMillis();
 
         if (messageSetIterator == null || !messageSetIterator.hasNext()) {
-
-            logger.debug("Fetching message from offset: " + offset);
-
-            FetchRequest fetchRequest = new FetchRequest(partition.getTopic(), partition.getPartitionId(), offset, kafkaMaxMessageSize);
-
-            messageSetIterator = consumer.fetch(fetchRequest).iterator();
-
+            messageSetIterator = kafkaConsumer.poll(1000).iterator();
             while (!messageSetIterator.hasNext()) {
                 logger.debug("No messages returned. Sleeping for 10s.");
                 try {
-                    Thread.sleep(10000);
+                    Thread.sleep(1000);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
                 if (System.currentTimeMillis() - start > timeOut) {
                     return null;
                 }
-                messageSetIterator = consumer.fetch(fetchRequest).iterator();
+                messageSetIterator = kafkaConsumer.poll(1000).iterator();
             }
         }
-        MessageAndOffset message = messageSetIterator.next();
-        offset = message.offset();
+        ConsumerRecord message = (ConsumerRecord) messageSetIterator.next();
+        lastOffset = message.offset();
         return message;
+    }
+
+    public void commit(TopicPartition topicPartition, Long offset) {
+        kafkaConsumer.commitSync(Collections.singletonMap(topicPartition, new OffsetAndMetadata(offset)));
     }
 
     @Override
     public String toString() {
-        return String.format("MessageStream(partition=%s,offset=%d)",partition,offset);
+        return String.format("MessageStream(topic=%s,offset=%d)",kafkaConsumer.listTopics().toString(),lastOffset);
     }
   }

@@ -13,7 +13,4 @@ public interface ArchiverMBean {
 
     public Set<String> getTopics();
 
-    public int getTotalPartitions();
-
-    public long getThreadRestarts();
 }

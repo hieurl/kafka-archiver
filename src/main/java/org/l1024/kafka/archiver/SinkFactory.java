@@ -1,18 +1,12 @@
 package org.l1024.kafka.archiver;
 
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.services.s3.AmazonS3Client;
 import org.l1024.kafka.archiver.s3.S3Sink;
 
 import java.io.IOException;
 
-/**
- * Created with IntelliJ IDEA.
- * User: lorenz
- * Date: 8/10/12
- * Time: 11:33 AM
- * To change this template use File | Settings | File Templates.
- */
 public class SinkFactory {
 
     private String s3AccessKey;
@@ -27,16 +21,23 @@ public class SinkFactory {
         this.s3Prefix = s3Prefix;
     }
 
-    public S3Sink createSink(Partition partition, long minAvailableOffset) throws IOException {
+    public S3Sink createSink(String topic, Integer maxMessageCountPerChunk, Integer maxChunkSize, Integer maxCommitInterval) throws IOException {
 
-        AmazonS3Client s3Client = new AmazonS3Client(new BasicAWSCredentials(s3AccessKey, s3SecretKey));
+        AmazonS3Client s3Client;
+        if (s3AccessKey != null && !s3AccessKey.isEmpty() && s3SecretKey != null && !s3SecretKey.isEmpty()) {
+            s3Client = new AmazonS3Client(new BasicAWSCredentials(s3AccessKey, s3SecretKey));
+        } else {
+            s3Client = new AmazonS3Client(new DefaultAWSCredentialsProviderChain());
+        }
 
         return new S3Sink(
                 s3Client,
                 s3Bucket,
                 s3Prefix,
-                partition,
-                minAvailableOffset
+                topic,
+                maxMessageCountPerChunk,
+                maxChunkSize,
+                maxCommitInterval
         );
     }
 

@@ -1,79 +1,32 @@
 package org.l1024.kafka.archiver;
 
-import kafka.message.MessageAndOffset;
-import kafka.server.KafkaConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.log4j.Logger;
 import org.l1024.kafka.archiver.config.Configuration;
 
 import javax.management.*;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 
 public class Archiver implements ArchiverMBean {
 
     private static final Logger logger = Logger.getLogger(Archiver.class);
 
-    private KafkaConfig kafkaConfig;
+    private Map<String, Object> kafkaConfig;
     private Configuration configuration;
 
-    List<ThreadContainer> threadContainers = new LinkedList<ThreadContainer>();
+    private ThreadContainer threadContainer;
 
-    private long threadRestarts = 0L;
-
-    public Archiver(KafkaConfig kafkaConfig, Configuration configuration) {
+    public Archiver(Map<String, Object> kafkaConfig, Configuration configuration) {
         this.kafkaConfig = kafkaConfig;
         this.configuration = configuration;
     }
 
     public void start() throws IOException, InterruptedException {
-
-        int brokerId = kafkaConfig.brokerId();
-        String kafkaHost;
-        int kafkaPort;
-
-        if (kafkaConfig.hostName() == null) {
-            kafkaHost = "localhost";
-        } else {
-            kafkaHost = kafkaConfig.hostName();
-        }
-        if (kafkaConfig.port() == 0) {
-            kafkaPort = 9092;
-        } else {
-            kafkaPort = kafkaConfig.port();
-        }
-
-        logger.info(String.format(
-                "Starting workers to archive kafka topics:\n"
-                        + "  host:           %s\n"
-                        + "  port:           %d\n"
-                        + "  brokerId:       %d\n"
-                        + "  bucket/key:     %s/%s\n"
-                        + "  topics:         %s\n"
-                        + "  chunkSize:      %d\n"
-                        + "  commitInterval: %d\n"
-                        + "  ignoregaps:     %s"
-                ,
-                kafkaHost,
-                kafkaPort,
-                kafkaConfig.brokerId(),
-                configuration.getS3Bucket(), configuration.getS3Prefix(),
-                configuration.getTopics(),
-                configuration.getMinTotalMessageSizePerChunk(),
-                configuration.getMaxCommitInterval(),
-                configuration.getIgnoreGapsTopics()
-        ));
-
-        MessageStreamFactory messageStreamFactory =
-                new MessageStreamFactory(
-                        kafkaHost,
-                        kafkaPort,
-                        configuration.getKafkaMaxMessageSize()
-                );
-
         SinkFactory sinkFactory =
                 new SinkFactory(
                         configuration.getS3AccessKey(),
@@ -81,76 +34,78 @@ public class Archiver implements ArchiverMBean {
                         configuration.getS3Bucket(),
                         configuration.getS3Prefix()
                 );
-
-        WorkerFactory workerFactory = new WorkerFactory(
-                messageStreamFactory,
+        threadContainer = new ThreadContainer(
+                kafkaConfig,
+                new ArrayList<>(getTopics()),
                 sinkFactory,
-                configuration.getMinTotalMessageSizePerChunk(),
                 configuration.getMaxCommitInterval(),
-                configuration.getIgnoreGapsTopics()
+                configuration.getMinTotalMessageCountPerChunk(),
+                configuration.getMinTotalMessageSizePerChunk()
         );
-        threadContainers = new LinkedList<ThreadContainer>();
-
-        for (String topic : configuration.getTopics()) {
-            int numPartitions;
-            if (kafkaConfig.topicPartitionsMap().contains(topic)) {
-                numPartitions = (Integer)kafkaConfig.topicPartitionsMap().apply(topic);
-            } else {
-                numPartitions = kafkaConfig.numPartitions();
-            }
-            for (int partitionId = 0; partitionId < numPartitions; partitionId++) {
-                Partition partition = new Partition(topic, brokerId, partitionId);
-                logger.info(String.format("Creating consumer for %s", partition));
-                threadContainers.add(new ThreadContainer(partition, workerFactory));
-            }
-        }
-
-        for (ThreadContainer threadContainer : threadContainers) {
-            threadContainer.start();
-        }
-
-        while (true) {
-            Thread.sleep(60000);
-            for (ThreadContainer threadContainer : threadContainers) {
-                if (threadContainer.maintain()) {
-                    threadRestarts += 1;
-                }
-            }
-        }
-
+        threadContainer.start();
     }
 
     private static class ThreadContainer {
 
-        private Partition partition;
-        private WorkerFactory workerFactory;
+        private List<String> topics;
 
         private ArchivingWorker worker;
         private Thread thread;
 
-        public ThreadContainer(Partition partition, WorkerFactory workerFactory) {
-            this.partition = partition;
-            this.workerFactory = workerFactory;
+        private Map<String, Object> kafkaConfig;
+        private SinkFactory sinkFactory;
+        private int maxCommitInterval;
+        private int maxMessageCountPerChunk;
+        private int maxChunkSize;
+
+        public ThreadContainer(Map<String, Object> kafkaConfig,
+                               List<String> topics,
+                               SinkFactory sinkFactory,
+                               Integer maxCommitInterval,
+                               Integer maxMessageCountPerChunk,
+                               Integer maxChunkSize
+                               ) {
+            this.topics = topics;
+            this.kafkaConfig = kafkaConfig;
+            this.sinkFactory = sinkFactory;
+            this.maxCommitInterval = maxCommitInterval;
+            this.maxMessageCountPerChunk = maxMessageCountPerChunk;
+            this.maxChunkSize = maxChunkSize;
         }
 
-        public void start() throws IOException {
-            logger.info(String.format("Creating worker. (%s)", partition));
+        public void start() throws IOException, InterruptedException {
+            logger.info(String.format("Creating worker. (%s)", topics.toString()));
             createThread();
             logger.debug(worker);
+
+            while (true) {
+                maintain();
+                Thread.sleep(60000);
+            }
         }
 
         public boolean maintain() throws IOException {
             boolean restart = !thread.isAlive() && !worker.isFinished();
             if (restart) {
-                logger.info(String.format("Thread (%s) died. Recreating worker. (%s)", thread, partition));
+                logger.info(String.format("Thread (%s) died. Recreating worker. (%s)", thread, topics.toString()));
                 createThread();
             }
+
+            worker.cron();
             logger.debug(worker);
             return restart;
         }
 
         private void createThread() {
-            worker = workerFactory.createWorker(partition);
+            KafkaConsumer kafkaConsumer = new KafkaConsumer(kafkaConfig);
+            kafkaConsumer.subscribe(this.topics);
+            worker = new ArchivingWorker(
+                    MessageStream.init(kafkaConsumer),
+                    sinkFactory,
+                    maxMessageCountPerChunk,
+                    maxChunkSize,
+                    maxCommitInterval
+                    );
             thread = new Thread(worker);
             thread.setUncaughtExceptionHandler(new ExceptionHandler());
             thread.start();
@@ -158,7 +113,7 @@ public class Archiver implements ArchiverMBean {
 
         @Override
         public String toString() {
-            return String.format("ThreadContainer(partition=%s,worker=%s)", partition, worker);
+            return String.format("ThreadContainer(topic=%s,worker=%s)", topics.toString(), worker);
         }
 
         private static class ExceptionHandler implements Thread.UncaughtExceptionHandler {
@@ -173,31 +128,27 @@ public class Archiver implements ArchiverMBean {
 
     private static class ArchivingWorker implements Runnable {
 
-        private Partition partition;
-        private MessageStreamFactory messageStreamFactory;
         private SinkFactory sinkFactory;
-        long minTotalMessageSizePerChunk;
+        int maxMessageCountPerChunk;
+        int maxChunkSize;
         int maxCommitInterval;
         private boolean finished = false;
-        private boolean ignoreGaps;
 
-        private Sink sink;
-        private MessageStream messages;
+        private Map<String, Sink> sinkMap = new HashMap<>();
+        private MessageStream messageStream;
 
         private ArchivingWorker(
-                Partition partition,
-                MessageStreamFactory messageStreamFactory,
+                MessageStream messageStream,
                 SinkFactory sinkFactory,
-                long minTotalMessageSizePerChunk,
-                int maxCommitInterval,
-                boolean ignoreGaps
+                int maxMessageCountPerChunk,
+                int maxChunkSize,
+                int maxCommitInterval
         ) {
-            this.partition = partition;
-            this.messageStreamFactory = messageStreamFactory;
             this.sinkFactory = sinkFactory;
-            this.minTotalMessageSizePerChunk = minTotalMessageSizePerChunk;
+            this.maxMessageCountPerChunk = maxMessageCountPerChunk;
             this.maxCommitInterval = maxCommitInterval;
-            this.ignoreGaps = ignoreGaps;
+            this.maxChunkSize = maxChunkSize;
+            this.messageStream = messageStream;
         }
 
         @Override
@@ -205,22 +156,26 @@ public class Archiver implements ArchiverMBean {
 
             try {
 
-                sink = sinkFactory.createSink(partition, ignoreGaps ? messageStreamFactory.minAvailableOffset(partition) : 0L);
-                messages = messageStreamFactory.createMessageStream(partition, sink.getMaxCommittedOffset());
-
-                logger.info(String.format("Worker starts archiving messages from partition %s starting with offset %d", partition, sink.getMaxCommittedOffset()));
-
-                while (messages.hasNext()) {
-                    MessageAndOffset messageAndOffset = messages.next((sink.getLastCommitTimestamp() + maxCommitInterval) - System.currentTimeMillis());
-                    if (messageAndOffset != null) {
-                        sink.append(messageAndOffset);
+                messageStream.kafkaConsumer.subscription().forEach(topic -> {
+                    try {
+                        Sink sink = sinkFactory.createSink(topic.toString(), maxMessageCountPerChunk, maxChunkSize, maxCommitInterval);
+                        sinkMap.put(topic.toString(), sink);
+                        logger.info(String.format("Worker starts archiving messageStream from topic %s starting with offset %d", topic, sink.getMaxCommittedOffset()));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
                     }
-                    if (sink.getUncommittedMessageSize() > minTotalMessageSizePerChunk) {
-                        logger.info(String.format("Committing chunk for %s. (size)", partition));
-                        sink.commitChunk();
-                    } else if (System.currentTimeMillis() - sink.getLastCommitTimestamp() > maxCommitInterval) {
-                        logger.info(String.format("Committing chunk for %s. (interval)", partition));
-                        sink.commitChunk();
+                });
+
+
+                while (messageStream.hasNext()) {
+                    ConsumerRecord consumerRecord = messageStream.next(maxCommitInterval);
+                    if (consumerRecord != null) {
+                        Sink sink = sinkMap.get(consumerRecord.topic());
+                        if (sink.append(consumerRecord, true)) {
+                            sink.getCommittedOffsets().forEach((p, offset) ->
+                                    messageStream.commit(new TopicPartition(consumerRecord.topic(), p), offset+1));
+                            sink.postCommitFinished();
+                        }
                     }
                 }
 
@@ -236,54 +191,34 @@ public class Archiver implements ArchiverMBean {
             return finished;
         }
 
+        public void cron() {
+            sinkMap.forEach((s, sink) -> {
+                try {
+                    if (sink.maybeCommitChunk(true)) {
+                        sink.getCommittedOffsets().forEach((p, offset) ->
+                                messageStream.commit(new TopicPartition(s, p), offset+1));
+                    }
+                    sink.postCommitFinished();
+                } catch (IOException e) {
+                    logger.error(e);
+                }
+            });
+        }
+
         @Override
         public String toString() {
-            if (messages == null || sink == null) {
+            if (messageStream == null || sinkMap == null) {
                 return String.format("ArchivingWorker(uninitialized)");
             } else {
-                return String.format("ArchivingWorker(messages=%s,sink=%s)", messages.toString(), sink.toString());
+                return String.format("ArchivingWorker(messageStream=%s,sink=%s)", messageStream.toString(), sinkMap.toString());
             }
         }
     }
 
-    private static class WorkerFactory {
-
-        private MessageStreamFactory messageStreamFactory;
-        private SinkFactory sinkFactory;
-        private long minTotalMessageSizePerChunk;
-        private int maxCommitInterval;
-        private Set<String> ignoreGapsTopics;
-
-        private WorkerFactory(
-                MessageStreamFactory messageStreamFactory,
-                SinkFactory sinkFactory,
-                long minTotalMessageSizePerChunk,
-                int maxCommitInterval,
-                Set<String> ignoreGapsTopics
-        ) {
-            this.messageStreamFactory = messageStreamFactory;
-            this.sinkFactory = sinkFactory;
-            this.minTotalMessageSizePerChunk = minTotalMessageSizePerChunk;
-            this.maxCommitInterval = maxCommitInterval;
-            this.ignoreGapsTopics = ignoreGapsTopics;
-        }
-
-        public ArchivingWorker createWorker(Partition partition) {
-
-            return new ArchivingWorker(
-                    partition,
-                    messageStreamFactory,
-                    sinkFactory,
-                    minTotalMessageSizePerChunk,
-                    maxCommitInterval,
-                    ignoreGapsTopics.contains(partition.getTopic())
-            );
-        }
-    }
 
     @Override
     public String toString() {
-        return String.format("Archiver(threadContainers=%s)", threadContainers);
+        return String.format("Archiver(threadContainer=%s)", threadContainer);
     }
 
     // JMX MBean methods
@@ -292,25 +227,17 @@ public class Archiver implements ArchiverMBean {
         return configuration.getTopics();
     }
 
-    @Override
-    public long getThreadRestarts() {
-        return threadRestarts;
-    }
-
-    @Override
-    public int getTotalPartitions() {
-        return threadContainers.size();
-    }
-
     public static void main(String[] args) throws IOException, InterruptedException, MalformedObjectNameException, MBeanRegistrationException, InstanceAlreadyExistsException, NotCompliantMBeanException {
 
         MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
 
+        /*
         if (args.length != 2) {
             System.out.println("Usage: java -jar <kafka consumer jar> <server properties> <archiver properties>");
         }
-        KafkaConfig kafkaConfig = Configuration.loadKafkaConfiguration(args[0]);
-        Configuration configuration = Configuration.loadConfiguration(args[1]);
+        */
+        Map<String, Object> kafkaConfig = Configuration.loadKafkaConfiguration("src/main/resources/kafkaConfig.properties");
+        Configuration configuration = Configuration.loadConfiguration("src/main/resources/serverConfig.properties");
 
         Archiver archiver = new Archiver(kafkaConfig, configuration);
 

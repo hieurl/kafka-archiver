@@ -1,11 +1,12 @@
 package org.l1024.kafka.archiver.config;
 
-import kafka.server.KafkaConfig;
 import org.apache.log4j.Logger;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
@@ -13,7 +14,7 @@ public abstract class Configuration {
 
     private static final Logger logger = Logger.getLogger(Configuration.class);
 
-    public static KafkaConfig loadKafkaConfiguration(String fileName) throws IOException {
+    public static Map<String, Object> loadKafkaConfiguration(String fileName) throws IOException {
 
         File file = new File(fileName);
 
@@ -21,7 +22,10 @@ public abstract class Configuration {
 
         Properties props = new Properties();
         props.load(new FileInputStream(file));
-        return new KafkaConfig(props);
+        Map<String, Object> kafkaConfig = new HashMap<>();
+        props.forEach((key, value) -> kafkaConfig.put(key.toString(), value));
+
+        return kafkaConfig;
     }
 
     public static Configuration loadConfiguration(String fileName) throws IOException {
@@ -41,10 +45,10 @@ public abstract class Configuration {
     public abstract String getS3Prefix();
 
     public abstract Set<String> getTopics();
-    public abstract Set<String> getIgnoreGapsTopics();
 
-    public abstract long getMinTotalMessageSizePerChunk();
-    public abstract int getKafkaMaxMessageSize();
+    public abstract int getMinTotalMessageSizePerChunk();
+
+    public abstract int getMinTotalMessageCountPerChunk();
 
     public abstract int getMaxCommitInterval();
 }

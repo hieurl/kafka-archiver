@@ -1,0 +1,28 @@
+plugins {
+    id 'net.saliman.cobertura' version '2.2.7'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile 'com.amazonaws:aws-java-sdk-s3:1.11.44'
+    compile 'org.apache.hadoop:hadoop-core:1.2.1'
+    compile 'com.novocode:junit-interface:0.11'
+    compile 'log4j:log4j:1.2.17'
+    compile 'org.apache.kafka:kafka-clients:0.11.0.0'
+}
+
+apply plugin: 'java'
+
+version = "0.1"
+task build_jar(type: Jar) {
+    manifest {
+        attributes 'Main-Class': 'org.l1024.kafka.archiver.Archiver'
+    }
+    baseName = "kafka-archiver-"
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+    with jar
+}
+
