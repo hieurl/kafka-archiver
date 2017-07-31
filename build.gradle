@@ -17,12 +17,11 @@ dependencies {
 apply plugin: 'java'
 
 version = "0.1"
-task build_jar(type: Jar) {
+jar {
     manifest {
         attributes 'Main-Class': 'org.l1024.kafka.archiver.Archiver'
     }
-    baseName = "kafka-archiver-"
+    baseName = "kafka-archiver"
     from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
-    with jar
 }
 

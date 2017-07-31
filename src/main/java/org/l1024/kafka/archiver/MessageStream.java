@@ -8,7 +8,6 @@ import org.apache.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.Map;
 
 class MessageStream {
 

@@ -157,12 +157,15 @@ public class Archiver implements ArchiverMBean {
             try {
 
                 messageStream.kafkaConsumer.subscription().forEach(topic -> {
-                    try {
-                        Sink sink = sinkFactory.createSink(topic.toString(), maxMessageCountPerChunk, maxChunkSize, maxCommitInterval);
-                        sinkMap.put(topic.toString(), sink);
-                        logger.info(String.format("Worker starts archiving messageStream from topic %s starting with offset %d", topic, sink.getMaxCommittedOffset()));
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
+                //messageStream.kafkaConsumer.listTopics().keySet().forEach(topic -> {
+                    if (!topic.equals("__consumer_offsets")) {
+                        try {
+                            Sink sink = sinkFactory.createSink(topic.toString(), maxMessageCountPerChunk, maxChunkSize, maxCommitInterval);
+                            sinkMap.put(topic.toString(), sink);
+                            logger.info(String.format("Worker starts archiving messageStream from topic %s starting with offset %d", topic, sink.getMaxCommittedOffset()));
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
                     }
                 });
 
@@ -236,8 +239,8 @@ public class Archiver implements ArchiverMBean {
             System.out.println("Usage: java -jar <kafka consumer jar> <server properties> <archiver properties>");
         }
         */
-        Map<String, Object> kafkaConfig = Configuration.loadKafkaConfiguration("src/main/resources/kafkaConfig.properties");
-        Configuration configuration = Configuration.loadConfiguration("src/main/resources/serverConfig.properties");
+        Map<String, Object> kafkaConfig = Configuration.loadKafkaConfiguration("kafkaConfig.properties");
+        Configuration configuration = Configuration.loadConfiguration("serverConfig.properties");
 
         Archiver archiver = new Archiver(kafkaConfig, configuration);
 

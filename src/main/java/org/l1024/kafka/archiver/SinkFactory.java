@@ -33,7 +33,7 @@ public class SinkFactory {
         return new S3Sink(
                 s3Client,
                 s3Bucket,
-                s3Prefix,
+                s3Prefix+"/"+topic,
                 topic,
                 maxMessageCountPerChunk,
                 maxChunkSize,

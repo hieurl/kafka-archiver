@@ -16,12 +16,10 @@ public abstract class Configuration {
 
     public static Map<String, Object> loadKafkaConfiguration(String fileName) throws IOException {
 
-        File file = new File(fileName);
-
-        logger.info(String.format("Loading kafka-server config (%s)", file.getAbsolutePath()));
+        ClassLoader classLoader = Configuration.class.getClassLoader();
 
         Properties props = new Properties();
-        props.load(new FileInputStream(file));
+        props.load(classLoader.getResourceAsStream(fileName));
         Map<String, Object> kafkaConfig = new HashMap<>();
         props.forEach((key, value) -> kafkaConfig.put(key.toString(), value));
 
@@ -30,12 +28,10 @@ public abstract class Configuration {
 
     public static Configuration loadConfiguration(String fileName) throws IOException {
 
-        File file = new File(fileName);
-
-        logger.info(String.format("Loading kafka-archiver config (%s)", file.getAbsolutePath()));
+        ClassLoader classLoader = Configuration.class.getClassLoader();
 
         Properties props = new Properties();
-        props.load(new FileInputStream(fileName));
+        props.load(classLoader.getResourceAsStream(fileName));
         return new PropertyConfiguration(props);
     }
 
