@@ -81,7 +81,7 @@ public class S3Sink implements Sink {
             chunk.appendMessageToChunk(consumerRecord);
             updateOffset(consumerRecord);
             appendCommitSemaphore.release();
-            if (getUncommittedMessageCount() > maxNumberRecordPerChunk) {
+            if (getUncommittedMessageCount() >= maxNumberRecordPerChunk) {
                 logger.info(String.format("Committing chunk for %s. (count)", this.topic));
                 commitChunk(hasPostCommitAction);
             } else if (getUncommittedMessageSize() > maxCommitChunkSize) {
@@ -120,7 +120,7 @@ public class S3Sink implements Sink {
             lastCommitTimestamp = System.currentTimeMillis();
 
             if (chunk.isEmpty()) {
-                logger.debug("Empty chunk. Nothing to upload.");
+                logger.info("Empty chunk. Nothing to upload.");
                 return;
             }
 
