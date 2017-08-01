@@ -192,6 +192,7 @@ public class S3Sink implements Sink {
 
         public synchronized void release() {
             this.taken = false;
+            this.notify();
         }
 
     }
