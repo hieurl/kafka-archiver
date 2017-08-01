@@ -234,13 +234,15 @@ public class Archiver implements ArchiverMBean {
 
         MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
 
-        /*
-        if (args.length != 2) {
-            System.out.println("Usage: java -jar <kafka consumer jar> <server properties> <archiver properties>");
-        }
-        */
         Map<String, Object> kafkaConfig = Configuration.loadKafkaConfiguration("kafkaConfig.properties");
         Configuration configuration = Configuration.loadConfiguration("serverConfig.properties");
+
+        if (args.length == 2) {
+            Map<String, Object> kafkaCustomConfig = Configuration.loadKafkaConfiguration(args[0]);
+            configuration = Configuration.loadConfiguration(args[1]);
+
+            kafkaCustomConfig.forEach(kafkaConfig::put);
+        }
 
         Archiver archiver = new Archiver(kafkaConfig, configuration);
 

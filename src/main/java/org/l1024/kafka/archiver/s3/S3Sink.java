@@ -7,6 +7,8 @@ import org.l1024.kafka.archiver.Sink;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -35,6 +37,7 @@ public class S3Sink implements Sink {
     private Map<Integer, Long> currentOffset;
 
     private Chunk chunk;
+    private long chunkInitTimestamp;
 
     private Semaphore appendCommitSemaphore;
     private Semaphore postCommitSemaphore;
@@ -53,11 +56,12 @@ public class S3Sink implements Sink {
 
         this.bucket = bucket;
         this.topic = topic;
-        this.keyPrefix = keyPrefix + "/" + this.topic + "_";
+        this.keyPrefix = keyPrefix;
 
         lastCommitTimestamp = System.currentTimeMillis();
 
         chunk = TextFileChunk.createChunk(topic);
+        chunkInitTimestamp = -1;
 
         this.maxNumberRecordPerChunk = maxMessageCountPerChunk;
         this.maxCommitInterval = maxCommitInterval;
@@ -97,6 +101,7 @@ public class S3Sink implements Sink {
     }
 
     protected void updateOffset(ConsumerRecord consumerRecord) {
+        if (chunkInitTimestamp == -1) chunkInitTimestamp = consumerRecord.timestamp();
         currentOffset.put(consumerRecord.partition(), consumerRecord.offset()+1);
     }
 
@@ -121,7 +126,9 @@ public class S3Sink implements Sink {
 
             File tmpChunkFile = chunk.finalizeChunk();
 
-            String key = keyPrefix + String.format("%019d",endOffset);
+            String key = keyPrefix + "/" +
+                    new SimpleDateFormat("yyyy.MM.dd").format(new Date(chunkInitTimestamp)) + "/" +
+                    chunk.topic+ "_" + String.format("%019d",endOffset);
             logger.info(String.format("Uploading chunk to S3 (%s).", key));
             s3Client.putObject(bucket, key, tmpChunkFile);
 
@@ -132,6 +139,7 @@ public class S3Sink implements Sink {
             chunk.cleanUp();
 
             chunk = TextFileChunk.createChunk(topic);
+            chunkInitTimestamp = -1;
 
             this.committedOffsets = new HashMap<>(currentOffset);
             logger.info(this.committedOffsets.toString());
