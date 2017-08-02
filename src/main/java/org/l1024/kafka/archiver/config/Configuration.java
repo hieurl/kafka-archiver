@@ -4,6 +4,7 @@ import org.apache.log4j.Logger;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,7 +20,11 @@ public abstract class Configuration {
         ClassLoader classLoader = Configuration.class.getClassLoader();
 
         Properties props = new Properties();
-        props.load(classLoader.getResourceAsStream(fileName));
+        try {
+            props.load(new FileInputStream(new File(fileName)));
+        } catch (FileNotFoundException e) {
+            props.load(classLoader.getResourceAsStream(fileName));
+        }
         Map<String, Object> kafkaConfig = new HashMap<>();
         props.forEach((key, value) -> kafkaConfig.put(key.toString(), value));
 
@@ -31,7 +36,11 @@ public abstract class Configuration {
         ClassLoader classLoader = Configuration.class.getClassLoader();
 
         Properties props = new Properties();
-        props.load(classLoader.getResourceAsStream(fileName));
+        try {
+            props.load(new FileInputStream(new File(fileName)));
+        } catch (FileNotFoundException e) {
+            props.load(classLoader.getResourceAsStream(fileName));
+        }
         return new PropertyConfiguration(props);
     }
 

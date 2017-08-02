@@ -23,7 +23,9 @@ gradle jar
 creates build/libs/kafka-archiver-0.1.jar
 
 ### Start
-
+```
+java -jar kafka-backup-0.1.jar kafkaconfig.properties serverconfig.properties 
+```
 
 ### Stop/Restart
 
