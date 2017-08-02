@@ -2,6 +2,7 @@ package org.l1024.kafka.archiver.s3;
 
 import com.amazonaws.services.s3.AmazonS3Client;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.log4j.Logger;
 import org.l1024.kafka.archiver.Sink;
 
@@ -21,7 +22,7 @@ public class S3Sink implements Sink {
     private final String bucket;
     private final String keyPrefix;
 
-    protected String topic;
+    protected TopicPartition partition;
     private long maxCommittedOffset;
 
     private long committedMessageCount = 0;
@@ -46,7 +47,7 @@ public class S3Sink implements Sink {
             AmazonS3Client s3Client,
             String bucket,
             String keyPrefix,
-            String topic,
+            TopicPartition partition,
             Integer maxMessageCountPerChunk,
             Integer maxChunkSize,
             Integer maxCommitInterval
@@ -55,12 +56,12 @@ public class S3Sink implements Sink {
         this.s3Client = s3Client;
 
         this.bucket = bucket;
-        this.topic = topic;
+        this.partition = partition;
         this.keyPrefix = keyPrefix;
 
         lastCommitTimestamp = System.currentTimeMillis();
 
-        chunk = TextFileChunk.createChunk(topic);
+        chunk = TextFileChunk.createChunk(this.partition.toString());
         chunkInitTimestamp = -1;
 
         this.maxNumberRecordPerChunk = maxMessageCountPerChunk;
@@ -82,13 +83,13 @@ public class S3Sink implements Sink {
             updateOffset(consumerRecord);
             appendCommitSemaphore.release();
             if (getUncommittedMessageCount() >= maxNumberRecordPerChunk) {
-                logger.info(String.format("Committing chunk for %s. (count)", this.topic));
+                logger.info(String.format("Committing chunk for %s. (count)", this.partition.toString()));
                 commitChunk(hasPostCommitAction);
             } else if (getUncommittedMessageSize() > maxCommitChunkSize) {
-                logger.info(String.format("Committing chunk for %s. (size)", this.topic));
+                logger.info(String.format("Committing chunk for %s. (size)", this.partition.toString()));
                 commitChunk(hasPostCommitAction);
             } else if (System.currentTimeMillis() - getLastCommitTimestamp() > maxCommitInterval) {
-                logger.info(String.format("Committing chunk for %s. (interval)", topic));
+                logger.info(String.format("Committing chunk for %s. (interval)", partition.toString()));
                 commitChunk(hasPostCommitAction);
             } else {
                 return false;
@@ -128,7 +129,7 @@ public class S3Sink implements Sink {
 
             String key = keyPrefix + "/" +
                     new SimpleDateFormat("yyyy.MM.dd").format(new Date(chunkInitTimestamp)) + "/" +
-                    chunk.topic+ "_" + String.format("%019d",endOffset);
+                    chunk.topicPartition + "_" + String.format("%019d",endOffset);
             logger.info(String.format("Uploading chunk to S3 (%s).", key));
             s3Client.putObject(bucket, key, tmpChunkFile);
 
@@ -138,7 +139,7 @@ public class S3Sink implements Sink {
 
             chunk.cleanUp();
 
-            chunk = TextFileChunk.createChunk(topic);
+            chunk = TextFileChunk.createChunk(partition.toString());
             chunkInitTimestamp = -1;
 
             this.committedOffsets = new HashMap<>(currentOffset);
@@ -158,7 +159,7 @@ public class S3Sink implements Sink {
     @Override
     public boolean maybeCommitChunk(boolean hasPostCommitAction) throws IOException {
         if (System.currentTimeMillis() - getLastCommitTimestamp() > maxCommitInterval) {
-            logger.info(String.format("Committing chunk for %s. (interval)", topic));
+            logger.info(String.format("Committing chunk for %s. (interval)", partition.toString()));
             commitChunk(hasPostCommitAction);
             return true;
         }

@@ -5,6 +5,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.log4j.Logger;
 import org.l1024.kafka.archiver.config.Configuration;
+import org.l1024.kafka.archiver.s3.S3Sink;
 
 import javax.management.*;
 import java.io.IOException;
@@ -113,7 +114,7 @@ public class Archiver implements ArchiverMBean {
 
         @Override
         public String toString() {
-            return String.format("ThreadContainer(topic=%s,worker=%s)", topics.toString(), worker);
+            return String.format("ThreadContainer(topicPartition=%s,worker=%s)", topics.toString(), worker);
         }
 
         private static class ExceptionHandler implements Thread.UncaughtExceptionHandler {
@@ -149,31 +150,28 @@ public class Archiver implements ArchiverMBean {
             this.maxCommitInterval = maxCommitInterval;
             this.maxChunkSize = maxChunkSize;
             this.messageStream = messageStream;
+
+
         }
 
         @Override
         public void run() {
-
+            String sinkMapKey;
             try {
-
-                messageStream.kafkaConsumer.subscription().forEach(topic -> {
-                //messageStream.kafkaConsumer.listTopics().keySet().forEach(topic -> {
-                    if (!topic.equals("__consumer_offsets")) {
-                        try {
-                            Sink sink = sinkFactory.createSink(topic.toString(), maxMessageCountPerChunk, maxChunkSize, maxCommitInterval);
-                            sinkMap.put(topic.toString(), sink);
-                            logger.info(String.format("Worker starts archiving messageStream from topic %s starting with offset %d", topic, sink.getMaxCommittedOffset()));
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-                });
-
-
                 while (messageStream.hasNext()) {
                     ConsumerRecord consumerRecord = messageStream.next(maxCommitInterval);
                     if (consumerRecord != null) {
-                        Sink sink = sinkMap.get(consumerRecord.topic());
+                        sinkMapKey = String.format("%s-%d", consumerRecord.topic(), consumerRecord.partition());
+
+                        if (! sinkMap.containsKey(sinkMapKey)) {
+                            sinkMap.put(sinkMapKey, sinkFactory.createSink(
+                                    new TopicPartition(consumerRecord.topic(), consumerRecord.partition()),
+                                    maxMessageCountPerChunk,
+                                    maxChunkSize,
+                                    maxCommitInterval
+                            ));
+                        }
+                        Sink sink = sinkMap.get(sinkMapKey);
                         if (sink.append(consumerRecord, true)) {
                             sink.getCommittedOffsets().forEach((p, offset) ->
                                     messageStream.commit(new TopicPartition(consumerRecord.topic(), p), offset+1));
@@ -232,7 +230,7 @@ public class Archiver implements ArchiverMBean {
 
     public static void main(String[] args) throws IOException, InterruptedException, MalformedObjectNameException, MBeanRegistrationException, InstanceAlreadyExistsException, NotCompliantMBeanException {
 
-        MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+        //MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
 
         Map<String, Object> kafkaConfig = Configuration.loadKafkaConfiguration("kafkaConfig.properties");
         Configuration configuration = Configuration.loadConfiguration("serverConfig.properties");
@@ -246,7 +244,7 @@ public class Archiver implements ArchiverMBean {
 
         Archiver archiver = new Archiver(kafkaConfig, configuration);
 
-        mbs.registerMBean(archiver, new ObjectName("Archiver:type=org.l1024.kafka.archiver.Archiver"));
+        //mbs.registerMBean(archiver, new ObjectName("Archiver:type=org.l1024.kafka.archiver.Archiver"));
 
         archiver.start();
     }

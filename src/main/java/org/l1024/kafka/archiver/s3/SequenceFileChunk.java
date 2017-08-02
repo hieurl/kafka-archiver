@@ -58,7 +58,7 @@ public class SequenceFileChunk extends Chunk {
 
     @Override
     public void appendMessageToChunk(ConsumerRecord messageAndOffset) throws IOException {
-        key.set(String.format("%s:%d", topic, messageAndOffset.offset()));
+        key.set(String.format("%s:%d", topicPartition, messageAndOffset.offset()));
 
         int messageSize = messageAndOffset.serializedValueSize();
         totalMessageCount += 1;

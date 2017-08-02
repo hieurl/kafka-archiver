@@ -7,15 +7,15 @@ import java.io.IOException;
 
 public abstract class Chunk {
 
-    protected String topic;
+    protected String topicPartition;
 
     protected long endOffset;
 
     protected long totalMessageCount = 0;
     protected long totalMessageSize = 0;
 
-    protected Chunk(String topic) throws IOException {
-        this.topic = topic;
+    protected Chunk(String topicPartition) throws IOException {
+        this.topicPartition = topicPartition;
     }
 
     public long getEndOffset() {

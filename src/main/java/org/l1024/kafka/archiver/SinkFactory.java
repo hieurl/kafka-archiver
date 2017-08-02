@@ -3,6 +3,7 @@ package org.l1024.kafka.archiver;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.services.s3.AmazonS3Client;
+import org.apache.kafka.common.TopicPartition;
 import org.l1024.kafka.archiver.s3.S3Sink;
 
 import java.io.IOException;
@@ -21,7 +22,7 @@ public class SinkFactory {
         this.s3Prefix = s3Prefix;
     }
 
-    public S3Sink createSink(String topic, Integer maxMessageCountPerChunk, Integer maxChunkSize, Integer maxCommitInterval) throws IOException {
+    public S3Sink createSink(TopicPartition partition, Integer maxMessageCountPerChunk, Integer maxChunkSize, Integer maxCommitInterval) throws IOException {
 
         AmazonS3Client s3Client;
         if (s3AccessKey != null && !s3AccessKey.isEmpty() && s3SecretKey != null && !s3SecretKey.isEmpty()) {
@@ -33,8 +34,8 @@ public class SinkFactory {
         return new S3Sink(
                 s3Client,
                 s3Bucket,
-                s3Prefix+"/"+topic,
-                topic,
+                s3Prefix+"/"+partition.topic(),
+                partition,
                 maxMessageCountPerChunk,
                 maxChunkSize,
                 maxCommitInterval

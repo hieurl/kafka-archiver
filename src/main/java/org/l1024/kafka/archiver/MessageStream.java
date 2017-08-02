@@ -81,7 +81,7 @@ class MessageStream {
 
     @Override
     public String toString() {
-        return String.format("MessageStream(topic=%s,offset=%d)",kafkaConsumer.listTopics().toString(),lastOffset);
+        return String.format("MessageStream(topicPartition=%s,offset=%d)",kafkaConsumer.listTopics().toString(),lastOffset);
     }
     public class Semaphore {
         private boolean taken = false;
