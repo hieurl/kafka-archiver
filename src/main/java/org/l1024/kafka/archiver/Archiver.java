@@ -5,11 +5,9 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.log4j.Logger;
 import org.l1024.kafka.archiver.config.Configuration;
-import org.l1024.kafka.archiver.s3.S3Sink;
 
 import javax.management.*;
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
 import java.util.*;
 
 
@@ -173,8 +171,8 @@ public class Archiver implements ArchiverMBean {
                         }
                         Sink sink = sinkMap.get(sinkMapKey);
                         if (sink.append(consumerRecord, true)) {
-                            sink.getCommittedOffsets().forEach((p, offset) ->
-                                    messageStream.commit(new TopicPartition(consumerRecord.topic(), p), offset+1));
+                            messageStream.commit(sink.getPartition(), sink.getCommittedOffset()+1);
+                            logger.info(String.format("Kafka committed at %s-%d: %s", sink.getPartition().topic(), sink.getPartition().partition(), sink.getCommittedOffset()+1));
                             sink.postCommitFinished();
                         }
                     }
@@ -196,8 +194,8 @@ public class Archiver implements ArchiverMBean {
             sinkMap.forEach((s, sink) -> {
                 try {
                     if (sink.maybeCommitChunk(true)) {
-                        sink.getCommittedOffsets().forEach((p, offset) ->
-                                messageStream.commit(new TopicPartition(s, p), offset+1));
+                        messageStream.commit(sink.getPartition(), sink.getCommittedOffset()+1);
+                        logger.info(String.format("Kafka committed at %s-%d: %s", sink.getPartition().topic(), sink.getPartition().partition(), sink.getCommittedOffset()+1));
                     }
                     sink.postCommitFinished();
                 } catch (IOException e) {

@@ -23,7 +23,6 @@ public class S3Sink implements Sink {
     private final String keyPrefix;
 
     protected TopicPartition partition;
-    private long maxCommittedOffset;
 
     private long committedMessageCount = 0;
     private long committedMessageSize = 0;
@@ -33,9 +32,9 @@ public class S3Sink implements Sink {
     private int maxCommitChunkSize;
     private int maxCommitInterval;
 
-    private Map<Integer, Long> committedOffsets; // partition
+    private long committedOffset; // partition
 
-    private Map<Integer, Long> currentOffset;
+    private long currentOffset;
 
     private Chunk chunk;
     private long chunkInitTimestamp;
@@ -68,8 +67,8 @@ public class S3Sink implements Sink {
         this.maxCommitInterval = maxCommitInterval;
         this.maxCommitChunkSize = maxChunkSize;
 
-        this.committedOffsets = new HashMap<>();
-        this.currentOffset = new HashMap<>();
+        this.committedOffset = -1;
+        this.currentOffset = -1;
 
         this.appendCommitSemaphore = new Semaphore();
         this.postCommitSemaphore = new Semaphore();
@@ -103,12 +102,12 @@ public class S3Sink implements Sink {
 
     protected void updateOffset(ConsumerRecord consumerRecord) {
         if (chunkInitTimestamp == -1) chunkInitTimestamp = consumerRecord.timestamp();
-        currentOffset.put(consumerRecord.partition(), consumerRecord.offset()+1);
+        currentOffset=consumerRecord.offset();
     }
 
     @Override
-    public Map<Integer, Long> getCommittedOffsets() {
-        return committedOffsets;
+    public Long getCommittedOffset() {
+        return committedOffset;
     }
 
     public void commitChunk(boolean hasPostCommitAction) throws IOException {
@@ -133,7 +132,6 @@ public class S3Sink implements Sink {
             logger.info(String.format("Uploading chunk to S3 (%s).", key));
             s3Client.putObject(bucket, key, tmpChunkFile);
 
-            maxCommittedOffset = endOffset;
             committedMessageCount += chunk.getTotalMessageCount();
             committedMessageSize += chunk.getTotalMessageSize();
 
@@ -142,8 +140,8 @@ public class S3Sink implements Sink {
             chunk = TextFileChunk.createChunk(partition.toString());
             chunkInitTimestamp = -1;
 
-            this.committedOffsets = new HashMap<>(currentOffset);
-            logger.info(this.committedOffsets.toString());
+            this.committedOffset = currentOffset;
+            logger.info(String.format("Uploaded backup for %s-%d at offset %d", this.partition.topic(), this.partition.partition(), committedOffset));
         } catch (InterruptedException e) {
             logger.error(e);
         } finally {
@@ -167,11 +165,6 @@ public class S3Sink implements Sink {
     }
 
     @Override
-    public long getMaxCommittedOffset() {
-        return maxCommittedOffset;
-    }
-
-    @Override
     public long getUncommittedMessageSize() {
         return chunk.getTotalMessageSize();
     }
@@ -183,6 +176,11 @@ public class S3Sink implements Sink {
     @Override
     public long getLastCommitTimestamp() {
         return lastCommitTimestamp;
+    }
+
+    @Override
+    public TopicPartition getPartition() {
+        return this.partition;
     }
 
     @Override
