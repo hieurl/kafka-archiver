@@ -16,6 +16,7 @@ class MessageStream {
     KafkaConsumer kafkaConsumer;
     Iterator messageSetIterator;
     long lastOffset = -1;
+    private Semaphore commitSemaphore;
 
     private static MessageStream instance;
 
@@ -36,6 +37,7 @@ class MessageStream {
 
     protected MessageStream(KafkaConsumer kafkaConsumer) {
         this.kafkaConsumer = kafkaConsumer;
+        this.commitSemaphore = new Semaphore();
     }
 
     public boolean hasNext() {
@@ -67,11 +69,32 @@ class MessageStream {
     }
 
     public void commit(TopicPartition topicPartition, Long offset) {
-        kafkaConsumer.commitSync(Collections.singletonMap(topicPartition, new OffsetAndMetadata(offset)));
+        try {
+            commitSemaphore.take();
+            kafkaConsumer.commitSync(Collections.singletonMap(topicPartition, new OffsetAndMetadata(offset)));
+        } catch (InterruptedException e) {
+            logger.error(e);
+        } finally {
+            commitSemaphore.release();
+        }
     }
 
     @Override
     public String toString() {
         return String.format("MessageStream(topic=%s,offset=%d)",kafkaConsumer.listTopics().toString(),lastOffset);
+    }
+    public class Semaphore {
+        private boolean taken = false;
+
+        public synchronized void take() throws InterruptedException{
+            while(this.taken) wait();
+            this.taken = true;
+        }
+
+        public synchronized void release() {
+            this.taken = false;
+            this.notify();
+        }
+
     }
   }

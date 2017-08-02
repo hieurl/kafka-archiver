@@ -145,7 +145,6 @@ public class S3Sink implements Sink {
             logger.info(this.committedOffsets.toString());
         } catch (InterruptedException e) {
             logger.error(e);
-            return;
         } finally {
             appendCommitSemaphore.release();
         }
