@@ -16,7 +16,7 @@ class MessageStream {
     KafkaConsumer kafkaConsumer;
     Iterator messageSetIterator;
     long lastOffset = -1;
-    private Semaphore commitSemaphore;
+    private Semaphore pollCommitSemaphore;
 
     private static MessageStream instance;
 
@@ -37,11 +37,23 @@ class MessageStream {
 
     protected MessageStream(KafkaConsumer kafkaConsumer) {
         this.kafkaConsumer = kafkaConsumer;
-        this.commitSemaphore = new Semaphore();
+        this.pollCommitSemaphore = new Semaphore();
     }
 
     public boolean hasNext() {
         return true;
+    }
+
+    protected Iterator poll(long timeout) {
+        try {
+            pollCommitSemaphore.take();
+            return kafkaConsumer.poll(timeout).iterator();
+        } catch (InterruptedException e) {
+            logger.error(e);
+            return Collections.EMPTY_LIST.iterator();
+        } finally {
+            pollCommitSemaphore.release();
+        }
     }
 
     public ConsumerRecord next(long timeOut) {
@@ -49,9 +61,9 @@ class MessageStream {
         long start = System.currentTimeMillis();
 
         if (messageSetIterator == null || !messageSetIterator.hasNext()) {
-            messageSetIterator = kafkaConsumer.poll(1000).iterator();
+            messageSetIterator = poll(1000);
             while (!messageSetIterator.hasNext()) {
-                logger.debug("No messages returned. Sleeping for 10s.");
+                logger.debug("No messages returned. Sleeping for 1s.");
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException e) {
@@ -60,7 +72,8 @@ class MessageStream {
                 if (System.currentTimeMillis() - start > timeOut) {
                     return null;
                 }
-                messageSetIterator = kafkaConsumer.poll(1000).iterator();
+
+                messageSetIterator = poll(1000);
             }
         }
         ConsumerRecord message = (ConsumerRecord) messageSetIterator.next();
@@ -70,12 +83,12 @@ class MessageStream {
 
     public void commit(TopicPartition topicPartition, Long offset) {
         try {
-            commitSemaphore.take();
+            pollCommitSemaphore.take();
             kafkaConsumer.commitSync(Collections.singletonMap(topicPartition, new OffsetAndMetadata(offset)));
         } catch (InterruptedException e) {
             logger.error(e);
         } finally {
-            commitSemaphore.release();
+            pollCommitSemaphore.release();
         }
     }
 

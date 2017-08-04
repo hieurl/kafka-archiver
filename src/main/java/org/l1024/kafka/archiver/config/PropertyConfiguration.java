@@ -17,7 +17,6 @@ public class PropertyConfiguration extends Configuration {
   private static final String PROP_S3_MIN_TOTAL_MESSAGE_COUNT_PER_CHUNK = "s3.mintotalmessagecountperchunk";
   private static final String PROP_S3_MAX_COMMIT_INTERVAL = "s3.maxcommitinterval";
   private static final String PROP_KAFKA_TOPICS = "kafka.topics";
-  private static final String PROP_IGNORE_GAPS_TOPICS = "kafka.ignoregaps";
 
   public PropertyConfiguration(Properties props) {
     this.props = props;
