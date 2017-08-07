@@ -88,6 +88,9 @@ public class S3Sink implements Sink {
             } else if (System.currentTimeMillis() - getLastCommitTimestamp() > maxCommitInterval) {
                 logger.info(String.format("Committing chunk for %s. (interval)", partition.toString()));
                 commitChunk(hasPostCommitAction);
+            } else if (consumerRecord.timestamp() - chunkInitTimestamp > maxCommitInterval) {
+                logger.info(String.format("Committing chunk for %s. (message time stamp interval)", partition.toString()));
+                commitChunk(hasPostCommitAction);
             } else {
                 return false;
             }
