@@ -90,7 +90,6 @@ public class Archiver implements ArchiverMBean {
                 createThread();
             }
 
-            worker.cron();
             logger.debug(worker);
             return restart;
         }
@@ -132,6 +131,7 @@ public class Archiver implements ArchiverMBean {
         int maxChunkSize;
         int maxCommitInterval;
         private boolean finished = false;
+        private long lastCron;
 
         private Map<String, Sink> sinkMap = new HashMap<>();
         private MessageStream messageStream;
@@ -148,8 +148,7 @@ public class Archiver implements ArchiverMBean {
             this.maxCommitInterval = maxCommitInterval;
             this.maxChunkSize = maxChunkSize;
             this.messageStream = messageStream;
-
-
+            this.lastCron = new Date().getTime();
         }
 
         @Override
@@ -176,6 +175,7 @@ public class Archiver implements ArchiverMBean {
                             sink.postCommitFinished();
                         }
                     }
+                    this.cron();
                 }
 
                 finished = true;
@@ -191,17 +191,20 @@ public class Archiver implements ArchiverMBean {
         }
 
         public void cron() {
-            sinkMap.forEach((s, sink) -> {
-                try {
-                    if (sink.maybeCommitChunk(true)) {
-                        messageStream.commit(sink.getPartition(), sink.getCommittedOffset()+1);
-                        logger.info(String.format("Kafka committed at %s-%d: %s", sink.getPartition().topic(), sink.getPartition().partition(), sink.getCommittedOffset()+1));
+            if (new Date().getTime() - lastCron > 60000) {
+                sinkMap.forEach((s, sink) -> {
+                    try {
+                        if (sink.maybeCommitChunk(true)) {
+                            messageStream.commit(sink.getPartition(), sink.getCommittedOffset() + 1);
+                            logger.info(String.format("Kafka committed at %s-%d: %s", sink.getPartition().topic(), sink.getPartition().partition(), sink.getCommittedOffset() + 1));
+                        }
+                        sink.postCommitFinished();
+                    } catch (IOException e) {
+                        logger.error(e);
                     }
-                    sink.postCommitFinished();
-                } catch (IOException e) {
-                    logger.error(e);
-                }
-            });
+                });
+                lastCron = new Date().getTime();
+            }
         }
 
         @Override
